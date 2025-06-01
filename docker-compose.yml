@@ -1,0 +1,89 @@
+version: "3.8"
+services:
+  cdb1:
+    image: cockroachdb/cockroach:v25.1.6
+    command: start --insecure --locality=region=localdc,cluster=dev1 
+             --join=test_cdb1,test_cdb2,test_cdb3
+             --listen-addr=:26257 --advertise-addr=test_cdb1
+    ports:
+      - "26257:26257"
+      - "8888:8080"
+    volumes:
+      - ./cdb_data/cdb1:/cockroach/cockroach-data
+    networks:
+      - test_dev-net
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.hostname == rpi1  # Adjust for your nodes
+
+  db-init:
+    image: cockroachdb/cockroach:v25.1.6
+    networks:
+      - test_dev-net
+    volumes:
+      - ./cdb_data/cdb_init:/cockroach/cockroach-data
+    entrypoint: "sh"
+    command: -c "sleep 10; /cockroach/cockroach init --insecure --host=test_cdb1 && touch /cockroach/cockroach-data/init"
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  cdb2:
+    image: cockroachdb/cockroach:v25.1.6
+    command: start --insecure --locality=region=localdc,cluster=dev1
+             --join=test_cdb1,test_cdb2,test_cdb3
+             --listen-addr=:26257 --advertise-addr=test_cdb2
+    volumes:
+      - ./cdb_data/cdb2:/cockroach/cockroach-data
+    networks:
+      - test_dev-net
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.hostname == rpi2  # Adjust for your nodes
+
+  cdb3:
+    image: cockroachdb/cockroach:v25.1.6
+    command: start --insecure --locality=region=localdc,cluster=dev1
+             --join=test_cdb1,test_cdb2,test_cdb3
+             --listen-addr=:26257 --advertise-addr=test_cdb3
+    volumes:
+      - ./cdb_data/cdb3:/cockroach/cockroach-data
+    networks:
+      - test_dev-net
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.hostname == rpi3  # Adjust for your nodes
+
+  db-cfg:
+    image: cockroachdb/cockroach:v25.1.6
+    networks:
+      - test_dev-net
+    volumes:
+      - ./cdb_sql/init.sql:/init.sql:ro
+    entrypoint: "sh"
+    command: -c "sleep 30; /cockroach/cockroach sql --insecure --host test_cdb1 < /init.sql"
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  db-web:
+    image: sosedoff/pgweb
+    networks:
+      - test_dev-net
+    ports: 
+      - "8081:8081"  
+    environment:
+      - DATABASE_URL=postgres://root@test_cdb1:26257/defaultdb?sslmode=disable
+    deploy:
+      replicas: 1
+networks:
+  test_dev-net:
+    driver: overlay
